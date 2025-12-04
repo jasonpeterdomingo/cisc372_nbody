@@ -1,3 +1,8 @@
+/*
+CISC372 HW 4
+Jason Domingo
+Andrew Orlov
+*/
 #include <stdlib.h>
 #include <math.h>
 #include "vector.h"
