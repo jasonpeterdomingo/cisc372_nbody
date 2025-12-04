@@ -7,8 +7,29 @@
 #define BLOCK_DIM_XY 16
 
 __global__ void computeAccels(vector3 *hPos, double *mass, vector3 *accels) {
-    int i = blockIdx.y * blockDim.y + threadIdx.y;
-    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int i = blockIdx.y * blockDim.y + threadIdx.y;  // row index
+    int j = blockIdx.x * blockDim.x + threadIdx.x;  // col index
+
+    // shared memory declarations
+    __shared__ vector3 sharedPosI[BLOCK_DIM_XY];
+    __shared__ vector3 sharedPosJ[BLOCK_DIM_XY];
+    __shared__ double sharedMassJ[BLOCK_DIM_XY];
+
+    // Only load data into shared memory once per row
+    if (i < NUMENTITIES && threadIdx.x == 0) {
+        for (int k = 0; k < 3; k++) {
+            sharedPosI[threadIdx.y][k] = hPos[i][k];
+        }
+    }
+    // Only load data into shared memory once per col
+    if (j < NUMENTITIES && threadIdx.y == 0) {
+        for (int k = 0; k < 3; k++) {
+            sharedPosJ[threadIdx.x][k] = hPos[j][k];
+        }
+        sharedMassJ[threadIdx.x] = mass[j];
+    }
+    __syncthreads();
+
     if (i < NUMENTITIES && j < NUMENTITIES) {
         int accelIndex = i * NUMENTITIES + j;
         if (i == j) {
@@ -17,10 +38,10 @@ __global__ void computeAccels(vector3 *hPos, double *mass, vector3 *accels) {
             accels[accelIndex][2] = 0.0;
         } else {
             vector3 distance;
-            for (int k=0;k<3;k++) distance[k]=hPos[i][k]-hPos[j][k];
+            for (int k=0;k<3;k++) distance[k]=sharedPosI[threadIdx.y][k]-sharedPosJ[threadIdx.x][k];
             double magnitude_sq=distance[0]*distance[0]+distance[1]*distance[1]+distance[2]*distance[2];
             double magnitude=sqrt(magnitude_sq);
-            double accelmag=-1*GRAV_CONSTANT*mass[j]/magnitude_sq;
+            double accelmag=-1*GRAV_CONSTANT*sharedMassJ[j]/magnitude_sq;
 
             for (int k = 0; k < 3; k++) {
                 accels[accelIndex][k] = accelmag * distance[k] / magnitude;
