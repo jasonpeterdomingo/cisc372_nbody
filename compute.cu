@@ -11,6 +11,7 @@ Andrew Orlov
 #define THREADS_PER_BLOCK 256
 #define BLOCK_DIM_XY 16
 
+// Kernel to compute accelerations
 __global__ void computeAccels(vector3 *hPos, double *mass, vector3 *accels) {
     int i = blockIdx.y * blockDim.y + threadIdx.y;  // row index
     int j = blockIdx.x * blockDim.x + threadIdx.x;  // col index
@@ -55,26 +56,47 @@ __global__ void computeAccels(vector3 *hPos, double *mass, vector3 *accels) {
     }
 }
 
+// Reduction Kernel to add accelerations to velocities; update velocities and positions
 __global__ void getEffect(vector3 *hPos, vector3 *hVel, vector3 *accels) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int i = blockIdx.x;
+    int stride = blockDim.x;
+    vector3 accel_sum = {0.0, 0.0, 0.0};
 
-    if (i < NUMENTITIES) {
-        vector3 accel_sum = {0.0, 0.0, 0.0};
+    // Each thread computes a partial sum of accelerations
+    for (int j = threadIdx.x; j < NUMENTITIES; j+= stride) {
+        int matrixIndex = i * NUMENTITIES + j;
+        for (int k = 0; k < 3; k++) {
+            accel_sum[k] += accels[matrixIndex][k];
+        }
+    }
 
-        for (int j = 0; j < NUMENTITIES; j++) {
-            int matrixIndex = i * NUMENTITIES + j;
+    // Stores partial sums in shared memory
+    __shared__ vector3 sharedAccelSum[THREADS_PER_BLOCK];
+    for (int k = 0; k < 3; k++) {
+        sharedAccelSum[threadIdx.x][k] = accel_sum[k];
+    }
+    __syncthreads();
+
+    // Reduce partial sums to get total acceleration
+    for (int offset = stride / 2; offset > 0; offset >>= 1) {
+        if (threadIdx.x < offset) {
             for (int k = 0; k < 3; k++) {
-                accel_sum[k] += accels[matrixIndex][k];
+                sharedAccelSum[threadIdx.x][k] += sharedAccelSum[threadIdx.x + offset][k];
             }
         }
+        __syncthreads();
+    }
 
-        for (int k=0;k<3;k++){
-			hVel[i][k]+=accel_sum[k]*INTERVAL;
-			hPos[i][k]+=hVel[i][k]*INTERVAL;
-		}
+    // First thread updates velocity and position
+    if (threadIdx.x == 0) {
+        for (int k = 0; k < 3; k++) {
+            hVel[i][k] += sharedAccelSum[0][k] * INTERVAL;
+			hPos[i][k]+=hVel[i][k] * INTERVAL;
+        }
     }
 }
 
+// Compute function to launch kernels
 void compute() {
     dim3 dimBlock(BLOCK_DIM_XY, BLOCK_DIM_XY);
     dim3 dimGrid((NUMENTITIES * BLOCK_DIM_XY - 1) / BLOCK_DIM_XY, (NUMENTITIES * BLOCK_DIM_XY - 1) / BLOCK_DIM_XY);
