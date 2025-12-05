@@ -105,34 +105,39 @@ int main(int argc, char **argv)
 	planetFill();
 	randomFill(NUMPLANETS + 1, NUMASTEROIDS);
 
+	// Allocate GPU memory
     cudaMalloc((void**)&d_hVel, sizeof(vector3) * NUMENTITIES);
     cudaMalloc((void**)&d_hPos, sizeof(vector3) * NUMENTITIES);
     cudaMalloc((void**)&d_mass, sizeof(double) * NUMENTITIES);
 	cudaMalloc((void**)&d_accels, sizeof(vector3) * NUMENTITIES * NUMENTITIES);
 
+	// Copy data to GPU
     cudaMemcpy(d_hPos, hPos, sizeof(vector3) * NUMENTITIES, cudaMemcpyHostToDevice);
     cudaMemcpy(d_hVel, hVel, sizeof(vector3) * NUMENTITIES, cudaMemcpyHostToDevice);
     cudaMemcpy(d_mass, mass, sizeof(double) * NUMENTITIES, cudaMemcpyHostToDevice);
 
 	//now we have a system.
-	// #ifdef DEBUG
+	#ifdef DEBUG
 	printSystem(stdout);
-	// #endif
+	#endif
 	for (t_now=0;t_now<DURATION;t_now+=INTERVAL){
 		compute();
 	}
 
+	// Copy results back to Host
     cudaMemcpy(hPos, d_hPos, sizeof(vector3) * NUMENTITIES, cudaMemcpyDeviceToHost);
     cudaMemcpy(hVel, d_hVel, sizeof(vector3) * NUMENTITIES, cudaMemcpyDeviceToHost);
     
+	// Free GPU memory
     cudaFree(d_hPos);
     cudaFree(d_hVel);
     cudaFree(d_mass);
 	cudaFree(d_accels);
+	
 	clock_t t1=clock()-t0;
-// #ifdef DEBUG
+#ifdef DEBUG
 	printSystem(stdout);
-// #endif
+#endif
 	printf("This took a total time of %f seconds\n",(double)t1/CLOCKS_PER_SEC);
 
 	freeHostMemory();
